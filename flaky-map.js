@@ -34,10 +34,14 @@
    - .cafe-num     the numbered circle inside .cafe-entry
 
    ATTRIBUTION
-   MapLibre renders the OpenStreetMap credit automatically in the
-   bottom corner (compact mode: a small (i) that expands on click).
-   OSM data is ODbL-licensed, so the credit is legally required — it
-   can be restyled or collapsed, never removed.
+   MapLibre's own attribution control is disabled; this file draws a
+   plain-text credit in the corner instead (no chip, no background).
+   The wording is the documented floor, not a preference:
+     - "(c) OpenMapTiles"  — required by OpenFreeMap for its tiles.
+     - "(c) OpenStreetMap" — required by ODbL, and the /copyright link
+       is what makes the licence discoverable.
+   "OpenFreeMap" itself is the only optional part, so it is omitted.
+   Shorten the styling all you like; do not drop either credit.
 
    SWITCHING TILE PROVIDERS
    Change CFG.styleUrl. Nothing else in this file is provider
@@ -101,7 +105,17 @@
 
   ready(function () {
     var host = document.querySelector(CFG.mapSelector);
-    if (!host) return;
+    if (!host) {
+      /* Nothing to draw into. Almost always means the map-container embed was
+         deleted from the template, which is invisible on the page and leaves no
+         error of its own — so say it out loud rather than exiting quietly. */
+      if (document.querySelector(CFG.dataSelector) && window.console) {
+        console.warn("[flaky-map] Found .cafe-data records but no " +
+          CFG.mapSelector + " container. The map embed is missing from the " +
+          "page — re-add Embed 2 inside map-frame.");
+      }
+      return;
+    }
 
     /* ---------- 1. read cafe data out of the DOM ---------- */
     var cafes = [].slice.call(document.querySelectorAll(CFG.dataSelector))
@@ -175,7 +189,7 @@
         style: styleUrl,
         center: [cafes[0].lng, cafes[0].lat],
         zoom: 12,
-        attributionControl: { compact: true },
+        attributionControl: false,   // replaced by buildAttribution() below
         preserveDrawingBuffer: true,  // lets screenshots / PDF export capture the map
         cooperativeGestures: false,
         dragRotate: false,
@@ -206,6 +220,7 @@
 
     map.on("load", function () {
       settle("tiles", function () {});
+      buildAttribution(host);
 
       var bounds = new window.maplibregl.LngLatBounds();
       var pins = cafes.map(function (c) {
@@ -385,6 +400,20 @@
     return CFG.fallbackStyleUrl;
   }
 
+  /* Plain-text OSM/OpenMapTiles credit, drawn over the map with a paper-
+     colored text halo instead of the usual white chip. Both credits are
+     required — see ATTRIBUTION at the top before editing this. */
+  function buildAttribution(host) {
+    if (host.querySelector(".flaky-attrib")) return;
+    var el = document.createElement("div");
+    el.className = "flaky-attrib";
+    el.innerHTML =
+      '<a href="https://www.openmaptiles.org/" target="_blank" rel="noopener noreferrer">\u00A9 OpenMapTiles</a>' +
+      '<span aria-hidden="true"> \u00B7 </span>' +
+      '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">\u00A9 OpenStreetMap</a>';
+    host.appendChild(el);
+  }
+
   /* Refit-to-all-pins control. MapLibre ships zoom and compass; this is the
      third button the spec asks for — once someone has panned off to Daly City,
      it puts every pin back in frame. */
@@ -402,7 +431,6 @@
     var icon = document.createElement("span");
     icon.className = "maplibregl-ctrl-icon";
     icon.setAttribute("aria-hidden", "true");
-    icon.textContent = "\u25CE";
     btn.appendChild(icon);
     btn.addEventListener("click", this._onReset);
     wrap.appendChild(btn);
@@ -496,13 +524,35 @@
       ".flaky-pin.is-on{z-index:9999;}" +
       ".flaky-pin.is-on .flaky-pin-shape{background:" + accent + ";transform:rotate(45deg) scale(1.22);}" +
       ".flaky-pin.is-on .flaky-pin-num{color:#fff;}" +
-      ".maplibregl-ctrl-attrib{font-family:inherit !important;font-size:10px !important;}" +
       ".maplibregl-ctrl-group{border-radius:8px !important;box-shadow:0 1px 5px rgba(0,0,0,.28) !important;}" +
-      ".flaky-ctrl-reset .maplibregl-ctrl-icon{display:flex;align-items:center;" +
-      "justify-content:center;font:400 17px/1 inherit;color:#333;" +
-      "background-image:none !important;}" +
-      ".flaky-ctrl-reset:hover .maplibregl-ctrl-icon{color:" + accent + ";}";
+      /* Centred by background-position on a square icon box — MapLibre's own
+         `.maplibregl-ctrl button .maplibregl-ctrl-icon` rule is more specific
+         than a single class, which is why flex centring on the span lost. */
+      ".maplibregl-ctrl button.flaky-ctrl-reset .maplibregl-ctrl-icon{" +
+      "background-image:" + resetIcon("#333333") + ";background-repeat:no-repeat;" +
+      "background-position:50% 50%;background-size:19px 19px;}" +
+      ".maplibregl-ctrl button.flaky-ctrl-reset:hover .maplibregl-ctrl-icon{" +
+      "background-image:" + resetIcon(accent) + ";}" +
+      /* Attribution: raw text over the map, no chip. The paper-coloured halo
+         is what keeps it readable over water, parks and roads alike. */
+      ".flaky-attrib{position:absolute;right:8px;bottom:6px;z-index:600;" +
+      "font:400 10px/1.35 inherit;letter-spacing:.1px;color:rgba(26,23,20,.62);" +
+      "text-shadow:0 1px 2px #F6F3EC,0 -1px 2px #F6F3EC,1px 0 2px #F6F3EC," +
+      "-1px 0 2px #F6F3EC;}" +
+      ".flaky-attrib a{color:inherit;text-decoration:none;}" +
+      ".flaky-attrib a:hover{text-decoration:underline;}";
     document.head.appendChild(s);
+  }
+
+  /* Concentric-ring "recentre" mark, drawn at the centre of a 20x20 box.
+     A background image rather than a text glyph: font metrics differ per
+     face, so a character never sits dead-centre in a 29px button. */
+  function resetIcon(color) {
+    var c = encodeURIComponent(color);
+    return "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' " +
+      "viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='6.6' fill='none' " +
+      "stroke='" + c + "' stroke-width='1.7'/%3E%3Ccircle cx='10' cy='10' r='2.1' " +
+      "fill='" + c + "'/%3E%3C/svg%3E\")";
   }
 
   function wireRailFade() {
